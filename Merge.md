@@ -67,3 +67,278 @@ If you have $P$ threads and want to merge $A$ (size $m$) and $B$ (size $n$):
         *   **Input A:** $A[i_{start} \dots i_{end}-1]$
         *   **Input B:** $B[j_{start} \dots j_{end}-1]$
         *   **Output C:** $C[k_{start} \dots k_{end}-1]$
+     
+Assume that we need to merge two lists A=(1, 7, 8, 9, 10) and B=(7, 10, 10, 12). What are the co-rank values for C[8]?
+2. Complete the calculation of co-rank functions for thread 2 in Fig. 12.6.
+3. For the for-loops that load A and B tiles in Fig. 12.12, add a call to the co-rank function so that we can load only the A and B elements that will be consumed in the current generation of the while-loop.
+
+Here are the answers to your specific questions based on the parallel merge logic.
+
+### 1. Co-rank values for C[8]
+
+**Given:**
+*   $A = \{1, 7, 8, 9, 10\}$ (Size $m=5$)
+*   $B = \{7, 10, 10, 12\}$ (Size $n=4$)
+*   **Target Rank ($k$):** 8
+
+**Goal:** Find $i$ and $j$ such that $i+j=8$.
+
+**Calculation:**
+1.  **Initialization:**
+    *   $i = \min(8, 5) = 5$
+    *   $j = 8 - 5 = 3$
+    *   $i\_low = \max(0, 8-4) = 4$
+    *   $j\_low = \max(0, 8-5) = 3$
+    *   *Analysis:* The window is very small. $i$ can only be 4 or 5.
+
+2.  **Iteration 1:**
+    *   **Check 1 (Is $i$ too high?):** Is $A[i-1] > B[j]$?
+        *   $A[4] = 10$
+        *   $B[3] = 12$
+        *   $10 > 12$? **No.**
+    *   **Check 2 (Is $j$ too high?):** Is $B[j-1] \ge A[i]$?
+        *   $B[2] = 10$
+        *   $A[5]$ is Out of Bounds (conceptually $\infty$).
+        *   Is $10 \ge \infty$? **No.**
+
+3.  **Result:** The loop terminates immediately.
+
+**Answer:**
+The co-rank values are **$i=5$** and **$j=3$**.
+*(Meaning: To generate the first 8 elements of C, we consume all 5 elements of A and the first 3 elements of B.)*
+
+---
+
+### 2. Complete the co-rank calculation for Thread 2 (Fig 12.6)
+
+**Context:**
+In the text description for Figure 12.6, there are 3 threads merging a total of 9 elements.
+*   Thread 0: $C[0]-C[2]$
+*   Thread 1: $C[3]-C[5]$
+*   **Thread 2: $C[6]-C[8]$**
+
+Thread 2 needs to calculate the start point, which corresponds to **Rank $k=6$**.
+
+**Arrays:**
+*   $A = \{1, 7, 8, 9, 10\}$ ($m=5$)
+*   $B = \{7, 10, 10, 12\}$ ($n=4$)
+
+**Step-by-Step for $k=6$:**
+
+1.  **Initialization:**
+    *   $i = \min(6, 5) = \mathbf{5}$
+    *   $j = 6 - 5 = \mathbf{1}$
+    *   $i\_low = \max(0, 6-4) = \mathbf{2}$
+    *   $j\_low = \max(0, 6-5) = \mathbf{1}$
+
+2.  **Iteration 1 (Current $i=5, j=1$):**
+    *   **Check 1 ($i$ too high?):** Is $A[i-1] > B[j]$?
+        *   $A[4] = 10$
+        *   $B[1] = 10$
+        *   Is $10 > 10$? **No.** (Strict inequality fails).
+    *   **Check 2 ($j$ too high?):** Is $B[j-1] \ge A[i]$?
+        *   $B[0] = 7$
+        *   $A[5] = \text{Out of Bounds}$.
+        *   Is $7 \ge \infty$? **No.**
+
+**Answer for Thread 2 Start:**
+The search terminates immediately. The start co-ranks for Thread 2 are **$i=5$** and **$j=1$**.
+
+---
+
+### 3. Modifying Loop for Loading Tiles (Fig 12.12 context)
+
+Although Figure 12.12 is not explicitly shown, the standard approach for a Tiled Parallel Merge involves loading a "tile" of A and B into Shared Memory. To do this, we must identify exactly which elements from A and B are required to produce the current output tile of C.
+
+We use `co_rank` to find the start and end of the input ranges.
+
+**Code Modification Example:**
+
+```c
+// Assume we are in a kernel. 
+// tile_size is the number of C elements this block produces.
+// c_start is the global index in C this block starts at.
+int c_start = blockIdx.x * tile_size;
+int c_end   = min(c_start + tile_size, m + n);
+
+// 1. CALL CO-RANK TO FIND INPUT BOUNDARIES
+// Find start indices (i_start, j_start) for this tile
+int i_start = co_rank(c_start, A, m, B, n);
+int j_start = c_start - i_start;
+
+// Find end indices (i_end, j_end) for this tile
+int i_end   = co_rank(c_end, A, m, B, n);
+int j_end   = c_end - i_end;
+
+// 2. LOAD A TILES
+// We only load elements from A[i_start] to A[i_end]
+// t is the thread index (threadIdx.x)
+for (int t = threadIdx.x; t < (i_end - i_start); t += blockDim.x) {
+    A_shared[t] = A[i_start + t];
+}
+
+// 3. LOAD B TILES
+// We only load elements from B[j_start] to B[j_end]
+for (int t = threadIdx.x; t < (j_end - j_start); t += blockDim.x) {
+    B_shared[t] = B[j_start + t];
+}
+
+__syncthreads();
+// Proceed with sequential merge using A_shared and B_shared...
+```
+
+Consider a parallel merge of two arrays of size 1,030,400 and 608,000. Assume that each thread merges eight elements and that a thread block size of 1024 is used.
+a. In the basic merge kernel in Fig. 12.9, how many threads perform a binary search on the data in the global memory?
+b. In the tiled merge kernel in Figs. 12.11–12.13, how many threads perform a binary search on the data in the global memory?
+c. In the tiled merge kernel in Figs. 12.11–12.13, how many threads perform a binary search on the data in the shared memory?
+
+Here are the step-by-step calculations and answers.
+
+Preliminary Calculations:
+First, let's calculate the total problem size and the grid dimensions required.
+
+Total Elements (
+𝑁
+N
+): Size A + Size B = 
+1
+,
+030
+,
+400
++
+608
+,
+000
+=
+1
+,
+638
+,
+400
+1,030,400+608,000=1,638,400
+ elements.
+
+Elements per Thread: 8.
+
+Total Threads Required: 
+1
+,
+638
+,
+400
+/
+8
+=
+204
+,
+800
+1,638,400/8=204,800
+ threads.
+
+Threads per Block: 1024.
+
+Total Blocks Required: 
+204
+,
+800
+/
+1024
+=
+200
+204,800/1024=200
+ blocks.
+
+a. Basic Merge Kernel (Fig. 12.9)
+
+Question: How many threads perform a binary search on the data in the global memory?
+
+Analysis:
+In the basic parallel merge approach (without tiling/shared memory), every single thread is responsible for generating a specific section of the output array 
+𝐶
+C
+. To do this, every thread must independently determine where its specific section starts in input arrays 
+𝐴
+A
+ and 
+𝐵
+B
+. This requires every thread to call the co_rank function on the global arrays.
+
+Calculation:
+Total Threads = 204,800.
+
+Answer:
+204,800 threads perform a binary search on global memory.
+
+b. Tiled Merge Kernel (Global Memory Search)
+
+Question: How many threads perform a binary search on the data in the global memory?
+
+Analysis:
+In the tiled merge kernel, the goal is to reduce global memory traffic. Instead of every thread searching global memory, the Thread Block as a whole identifies a large "tile" of data (8192 elements in this case) to load into shared memory.
+
+To define this tile, the block needs to find its Start Rank and End Rank in global memory.
+
+Typically, 2 threads per block perform these searches (e.g., Thread 0 finds the start coordinates, and another thread—often the last one—finds the end coordinates).
+
+The rest of the threads wait for these coordinates to be found so they can help load the data.
+
+Calculation:
+
+Total Blocks = 200.
+
+Searches per Block = 2 (Start and End).
+
+Total Threads = 
+200
+ blocks
+×
+2
+ threads/block
+=
+400
+200 blocks×2 threads/block=400
+.
+
+Answer:
+400 threads perform a binary search on global memory.
+
+c. Tiled Merge Kernel (Shared Memory Search)
+
+Question: How many threads perform a binary search on the data in the shared memory?
+
+Analysis:
+Once the data tile is loaded into Shared Memory, the problem becomes a local merge sort within that block.
+
+Each thread in the block is still responsible for merging 8 specific elements.
+
+However, the thread now looks for its co-rank indices within the Shared Memory arrays (
+𝐴
+_
+𝑠
+ℎ
+𝑎
+𝑟
+𝑒
+𝑑
+A_shared
+ and 
+𝐵
+_
+𝑠
+ℎ
+𝑎
+𝑟
+𝑒
+𝑑
+B_shared
+), not Global Memory.
+
+Since every active thread has work to do, every active thread must perform a binary search within the shared memory tile to find its local starting point.
+
+Calculation:
+Total Threads = 204,800.
+
+Answer:
+204,800 threads perform a binary search on shared memory.
