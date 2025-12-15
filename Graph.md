@@ -1,4 +1,6 @@
-Here are the solutions to the exercises based on the provided graph and the concepts from Chapter 15.
+Here are the solutions to the exercises based on the provided graph and the concepts from Chapter 15.<img width="499" height="1384" alt="image" src="https://github.com/user-attachments/assets/9f0a1c78-1eec-4d59-93e7-338d452600ff" />
+
+
 
 ---
 
