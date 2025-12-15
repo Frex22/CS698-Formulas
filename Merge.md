@@ -187,158 +187,103 @@ __syncthreads();
 // Proceed with sequential merge using A_shared and B_shared...
 ```
 
-Consider a parallel merge of two arrays of size 1,030,400 and 608,000. Assume that each thread merges eight elements and that a thread block size of 1024 is used.
-a. In the basic merge kernel in Fig. 12.9, how many threads perform a binary search on the data in the global memory?
-b. In the tiled merge kernel in Figs. 12.11–12.13, how many threads perform a binary search on the data in the global memory?
-c. In the tiled merge kernel in Figs. 12.11–12.13, how many threads perform a binary search on the data in the shared memory?
+This is the "Zig-Zag" example. This scenario is designed to force the algorithm to fail the first check, over-correct, fail the second check, and finally stabilize. It demonstrates the full power of the binary search logic.
 
-Here are the step-by-step calculations and answers.
+### The Scenario
 
-Preliminary Calculations:
-First, let's calculate the total problem size and the grid dimensions required.
+We are merging two interleaved arrays (Odds and Evens).
+*   **Array A ($m=8$):** `[1, 3, 5, 7, 9, 11, 13, 15]`
+*   **Array B ($n=8$):** `[2, 4, 6, 8, 10, 12, 14, 16]`
+*   **Target Rank ($k$):** 9
 
-Total Elements (
-𝑁
-N
-): Size A + Size B = 
-1
-,
-030
-,
-400
-+
-608
-,
-000
-=
-1
-,
-638
-,
-400
-1,030,400+608,000=1,638,400
- elements.
+**The Logic:** We need the first 9 sorted elements.
+Sorted list: `1, 2, 3, 4, 5, 6, 7, 8, 9`.
+**Correct Answer:** We need `1, 3, 5, 7, 9` from A ($i=5$) and `2, 4, 6, 8` from B ($j=4$).
 
-Elements per Thread: 8.
+---
 
-Total Threads Required: 
-1
-,
-638
-,
-400
-/
-8
-=
-204
-,
-800
-1,638,400/8=204,800
- threads.
+### Step 1: Initialization
+We assume we take as much as possible from A first.
 
-Threads per Block: 1024.
+*   **$i$:** $\min(9, 8) = \mathbf{8}$
+*   **$j$:** $9 - 8 = \mathbf{1}$
+*   **$i\_low$:** $\max(0, 9-8) = \mathbf{1}$
+*   **$j\_low$:** $\max(0, 9-8) = \mathbf{1}$
 
-Total Blocks Required: 
-204
-,
-800
-/
-1024
-=
-200
-204,800/1024=200
- blocks.
+**Status:** $i=8, j=1$. The algorithm currently thinks we take **everything** from A and only `2` from B.
 
-a. Basic Merge Kernel (Fig. 12.9)
+---
 
-Question: How many threads perform a binary search on the data in the global memory?
+### Step 2: The Loop (The Search)
 
-Analysis:
-In the basic parallel merge approach (without tiling/shared memory), every single thread is responsible for generating a specific section of the output array 
-𝐶
-C
-. To do this, every thread must independently determine where its specific section starts in input arrays 
-𝐴
-A
- and 
-𝐵
-B
-. This requires every thread to call the co_rank function on the global arrays.
+#### Iteration 1: The Big Drop
+We check if our guess ($i=8, j=1$) is valid.
 
-Calculation:
-Total Threads = 204,800.
+*   **Check 1: Is $i$ too high?** ($A[i-1] > B[j]$)
+    *   Compare last element of taken A vs next element of B.
+    *   $A[7]$ (Value **15**) vs $B[1]$ (Value **4**).
+    *   Is $15 > 4$? **YES.** (Way too high).
+*   **Action:** Reduce $i$, Increase $j$.
+    *   **Calculate Delta:** $(i - i\_low + 1) / 2$
+        *   $(8 - 1 + 1) / 2 = 8 / 2 = \mathbf{4}$.
+    *   **Update Bounds:** Set $j\_low = 1$ (current $j$).
+    *   **Update $j$:** $1 + 4 = \mathbf{5}$.
+    *   **Update $i$:** $8 - 4 = \mathbf{4}$.
 
-Answer:
-204,800 threads perform a binary search on global memory.
+**Status:** $i=4, j=5$. We jumped halfway down. Now we are taking `1,3,5,7` from A and `2,4,6,8,10` from B.
 
-b. Tiled Merge Kernel (Global Memory Search)
+#### Iteration 2: The Over-Correction
+Now we check our new guess ($i=4, j=5$).
 
-Question: How many threads perform a binary search on the data in the global memory?
+*   **Check 1: Is $i$ too high?** ($A[i-1] > B[j]$)
+    *   $A[3]$ (Value **7**) vs $B[5]$ (Value **12**).
+    *   Is $7 > 12$? **NO.** (We went too low on A).
+*   **Check 2: Is $j$ too high?** ($B[j-1] \ge A[i]$)
+    *   Compare last element of taken B vs next element of A.
+    *   $B[4]$ (Value **10**) vs $A[4]$ (Value **9**).
+    *   Is $10 \ge 9$? **YES.** (B is too high).
+*   **Action:** Reduce $j$, Increase $i$.
+    *   **Calculate Delta:** $(j - j\_low + 1) / 2$
+        *   $(5 - 1 + 1) / 2 = 5 / 2 = \mathbf{2}$ (integer math).
+    *   **Update Bounds:** Set $i\_low = 4$ (current $i$).
+    *   **Update $i$:** $4 + 2 = \mathbf{6}$.
+    *   **Update $j$:** $5 - 2 = \mathbf{3}$.
 
-Analysis:
-In the tiled merge kernel, the goal is to reduce global memory traffic. Instead of every thread searching global memory, the Thread Block as a whole identifies a large "tile" of data (8192 elements in this case) to load into shared memory.
+**Status:** $i=6, j=3$. We realized we took too much B, so we gave some back and took more A.
 
-To define this tile, the block needs to find its Start Rank and End Rank in global memory.
+#### Iteration 3: Fine Tuning
+Now we check guess ($i=6, j=3$).
 
-Typically, 2 threads per block perform these searches (e.g., Thread 0 finds the start coordinates, and another thread—often the last one—finds the end coordinates).
+*   **Check 1: Is $i$ too high?** ($A[i-1] > B[j]$)
+    *   $A[5]$ (Value **11**) vs $B[3]$ (Value **8**).
+    *   Is $11 > 8$? **YES.** ($i$ is slightly too high).
+*   **Action:** Reduce $i$, Increase $j$.
+    *   **Calculate Delta:** $(i - i\_low + 1) / 2$
+        *   $(6 - 4 + 1) / 2 = 3 / 2 = \mathbf{1}$.
+    *   **Update Bounds:** Set $j\_low = 3$.
+    *   **Update $j$:** $3 + 1 = \mathbf{4}$.
+    *   **Update $i$:** $6 - 1 = \mathbf{5}$.
 
-The rest of the threads wait for these coordinates to be found so they can help load the data.
+**Status:** $i=5, j=4$.
 
-Calculation:
+#### Iteration 4: Verification
+Now we check guess ($i=5, j=4$).
 
-Total Blocks = 200.
+*   **Check 1: Is $i$ too high?** ($A[i-1] > B[j]$)
+    *   $A[4]$ (Value **9**) vs $B[4]$ (Value **10**).
+    *   $9 > 10$? **NO.**
+*   **Check 2: Is $j$ too high?** ($B[j-1] \ge A[i]$)
+    *   $B[3]$ (Value **8**) vs $A[5]$ (Value **11**).
+    *   $8 \ge 11$? **NO.**
 
-Searches per Block = 2 (Start and End).
+**RESULT:** Both checks fail. The loop exits.
+**Final Values:** $i=5, j=4$.
 
-Total Threads = 
-200
- blocks
-×
-2
- threads/block
-=
-400
-200 blocks×2 threads/block=400
-.
+---
 
-Answer:
-400 threads perform a binary search on global memory.
+### Summary of the "All Purpose" Logic Walkthrough
 
-c. Tiled Merge Kernel (Shared Memory Search)
-
-Question: How many threads perform a binary search on the data in the shared memory?
-
-Analysis:
-Once the data tile is loaded into Shared Memory, the problem becomes a local merge sort within that block.
-
-Each thread in the block is still responsible for merging 8 specific elements.
-
-However, the thread now looks for its co-rank indices within the Shared Memory arrays (
-𝐴
-_
-𝑠
-ℎ
-𝑎
-𝑟
-𝑒
-𝑑
-A_shared
- and 
-𝐵
-_
-𝑠
-ℎ
-𝑎
-𝑟
-𝑒
-𝑑
-B_shared
-), not Global Memory.
-
-Since every active thread has work to do, every active thread must perform a binary search within the shared memory tile to find its local starting point.
-
-Calculation:
-Total Threads = 204,800.
-
-Answer:
-204,800 threads perform a binary search on shared memory.
+1.  **Initialize aggressively:** Start with $i$ as large as possible.
+2.  **Check 1 (Left Boundary):** Look at the biggest item you are taking from A. Is it bigger than the first item you are *ignoring* in B? If yes, you took too much A. **Cut A range in half.**
+3.  **Check 2 (Right Boundary):** Look at the biggest item you are taking from B. Is it bigger than (or equal to) the first item you are *ignoring* in A? If yes, you took too much B. **Cut B range in half.**
+4.  **Repeat** until neither boundary is violated.
