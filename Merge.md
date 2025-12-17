@@ -287,3 +287,90 @@ Now we check guess ($i=5, j=4$).
 2.  **Check 1 (Left Boundary):** Look at the biggest item you are taking from A. Is it bigger than the first item you are *ignoring* in B? If yes, you took too much A. **Cut A range in half.**
 3.  **Check 2 (Right Boundary):** Look at the biggest item you are taking from B. Is it bigger than (or equal to) the first item you are *ignoring* in A? If yes, you took too much B. **Cut B range in half.**
 4.  **Repeat** until neither boundary is violated.
+
+Here is the **Zig-Zag** example using the **Standard Binary Search (No Delta)** method.
+
+### The Scenario
+*   **Array A ($m=8$):** `[1, 3, 5, 7, 9, 11, 13, 15]`
+*   **Array B ($n=8$):** `[2, 4, 6, 8, 10, 12, 14, 16]`
+*   **Target Rank ($k$):** 9
+*   **Correct Answer:** We need $i=5$ (values `1,3,5,7,9`) and $j=4$ (values `2,4,6,8`).
+
+---
+
+### Step 1: Initialization
+Define the search window for **$i$** (how many elements we take from A).
+*   **$i_{min} = \max(0, k-n)$**: $\max(0, 9-8) = \mathbf{1}$
+*   **$i_{max} = \min(k, m)$**: $\min(9, 8) = \mathbf{8}$
+
+**Current Window:** `[1, 8]`
+
+---
+
+### Step 2: Iteration 1
+**1. Guess $i$:** Middle of 1 and 8.
+$$i = (1 + 8) / 2 = \mathbf{4}$$
+**2. Calculate $j$:**
+$$j = 9 - 4 = \mathbf{5}$$
+
+**3. Check the Split:**
+*   We took 4 from A (ends at `7`). Next available in A is `9` ($A[4]$).
+*   We took 5 from B (ends at `10`). Next available in B is `12` ($B[5]$).
+
+*   **Check 1 (Is A too big?):** Is Last A ($A[3]=7$) > Next B ($B[5]=12$)?
+    *   $7 > 12$? **NO.**
+*   **Check 2 (Is B too big?):** Is Last B ($B[4]=10$) $\ge$ Next A ($A[4]=9$)?
+    *   $10 \ge 9$? **YES.**
+
+**Diagnosis:** B is too big (which means A is too small).
+**Action:** Increase A. Move $i_{min}$ up.
+$$i_{min} = i + 1 \rightarrow \mathbf{5}$$
+
+---
+
+### Step 3: Iteration 2
+**Current Window:** `[5, 8]`
+
+**1. Guess $i$:** Middle of 5 and 8.
+$$i = (5 + 8) / 2 = \mathbf{6}$$
+**2. Calculate $j$:**
+$$j = 9 - 6 = \mathbf{3}$$
+
+**3. Check the Split:**
+*   We took 6 from A (ends at `11`).
+*   We took 3 from B (ends at `6`). Next available B is `8` ($B[3]$).
+
+*   **Check 1 (Is A too big?):** Is Last A ($A[5]=11$) > Next B ($B[3]=8$)?
+    *   $11 > 8$? **YES.**
+
+**Diagnosis:** A is too big.
+**Action:** Decrease A. Move $i_{max}$ down.
+$$i_{max} = i - 1 \rightarrow \mathbf{5}$$
+
+---
+
+### Step 4: Iteration 3
+**Current Window:** `[5, 5]`
+*(Since min and max are equal, this must be the answer, but let's verify).*
+
+**1. Guess $i$:**
+$$i = (5 + 5) / 2 = \mathbf{5}$$
+**2. Calculate $j$:**
+$$j = 9 - 5 = \mathbf{4}$$
+
+**3. Check the Split:**
+*   We took 5 from A (ends at `9`). Next available A is `11`.
+*   We took 4 from B (ends at `8`). Next available B is `10`.
+
+*   **Check 1 (Is A too big?):** $A[4]=9$ vs $B[4]=10$.
+    *   $9 > 10$? **NO.**
+*   **Check 2 (Is B too big?):** $B[3]=8$ vs $A[5]=11$.
+    *   $8 \ge 11$? **NO.**
+
+**Diagnosis:** Both checks passed.
+**Result:** **$i=5, j=4$**.
+
+Verification:
+A contributes: `1, 3, 5, 7, 9`
+B contributes: `2, 4, 6, 8`
+Sorted: `1, 2, 3, 4, 5, 6, 7, 8, 9`. (Correct).
