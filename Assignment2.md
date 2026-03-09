@@ -84,6 +84,7 @@ def heapMaxRemove(H):
 ### Algorithm description
 
 *Describe your algorithm in plain English. Which nodes do you need to examine, and why?*
+
 So minimum element in a max heap will be in the last level of the tree, so if we compare from top and then reach the last level and compare laterally again 
 it doesnt seem a good solution as many comparisions plus the approach itself doesnt look correct.
 So we know that we need to get at the last level, so that means that any node with children will never be min so it has to be the leafnodes, now the idea is if we can
